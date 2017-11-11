@@ -135,7 +135,7 @@ Matrix & Matrix::operator/=(double scalar)
 	return *this;
 }
 
-Matrix Matrix::transpose()
+Matrix Matrix::transpose() const
 {
 	Matrix ret(m_data[0].size(), m_data.size());
 	for (size_t i = 0; i < m_data.size(); ++i)
@@ -187,7 +187,7 @@ Matrix & Matrix::operator/(double scalar)
 	return *this;
 }
 
-Matrix Matrix::operator*(const Matrix & other)
+Matrix Matrix::operator*(const Matrix & other) const
 {
 	if (m_data[0].size() != other.m_data.size())
 		throw std::runtime_error("invalid dimensions");
@@ -209,7 +209,7 @@ Matrix Matrix::operator*(const Matrix & other)
 	return ret;
 }
 
-Matrix Matrix::hadamardProduct(const Matrix & other)
+Matrix Matrix::hadamardProduct(const Matrix & other) const
 {
 	if (m_data.size() != other.m_data.size() || m_data[0].size() != other.m_data[0].size())
 		throw std::runtime_error("invalid dimensions");

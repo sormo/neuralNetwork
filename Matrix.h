@@ -31,10 +31,10 @@ public:
 	Matrix & operator-(const Matrix & other);
 	Matrix & operator*(double scalar);
 	Matrix & operator/(double scalar);
-	Matrix  operator*(const Matrix & other);
+	Matrix  operator*(const Matrix & other) const;
 
-	Matrix transpose();
-	Matrix hadamardProduct(const Matrix & other);
+	Matrix transpose() const;
+	Matrix hadamardProduct(const Matrix & other) const;
 
 	friend std::ostream & operator<<(std::ostream & stream, const Matrix & matrix);
 	friend std::istream & operator>>(std::istream & stream, Matrix & matrix);

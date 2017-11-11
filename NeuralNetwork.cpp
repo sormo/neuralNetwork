@@ -8,15 +8,7 @@ namespace NeuralNetwork
 	struct Layer
 	{
 		Matrix weights;
-		Matrix values;
 		Matrix biases;
-
-		Matrix weightedInput;
-	};
-
-	struct Network
-	{
-		std::vector<Layer> layers;
 	};
 
 	struct Error
@@ -25,9 +17,17 @@ namespace NeuralNetwork
 		Matrix biases;
 	};
 
-	struct NetworkError
+	struct Value
 	{
-		std::vector<Error> layers;
+		Matrix values;
+		Matrix weightedInput;
+	};
+
+	struct Network
+	{
+		std::vector<Layer> layers;
+		mutable std::vector<Value> values;
+		std::vector<Error> errors;
 	};
 
 	Matrix ActivationFunction(const Matrix & values)
@@ -75,9 +75,7 @@ namespace NeuralNetwork
 			Layer layer
 			{
 				Matrix(currentSize, previousSize), // weights
-				Matrix(currentSize, 1),            // values 
 				Matrix(currentSize, 1),            // biases
-				Matrix(currentSize, 1),            // weighted input
 			};
 
 			// initialization of weights and biases
@@ -89,87 +87,81 @@ namespace NeuralNetwork
 			}
 
 			ret->layers.push_back(std::move(layer));
+			// initialize error matrices for each weight and bias
+			ret->errors.push_back({ Matrix(layer.weights.GetShape()), Matrix(layer.biases.GetShape()) });
+			// initialize output for each neuron
+			ret->values.push_back({ Matrix(currentSize, 1), Matrix(currentSize, 1) });
 		}
 
 		return ret;
 	}
 
-	NetworkError CreateNetworkError(const Network & network)
+	void PropagateForward(const Network & network, const std::vector<double> & input)
 	{
-		NetworkError ret;
-		for (size_t i = 0; i < network.layers.size(); ++i)
-		{
-			const Layer & layer = network.layers[i];
-			ret.layers.push_back({ Matrix(layer.weights.GetShape()), Matrix(layer.biases.GetShape()) });
-		}
-		return ret;
-	}
-
-	void PropagateForward(Network & network, const std::vector<double> & input)
-	{
-		if (input.size() != network.layers[0].values.GetNumberOfRows())
+		if (input.size() != network.values[0].values.GetNumberOfRows())
 			throw std::runtime_error("invalid number of input values");
 
 		// set values to input layer
 		for (size_t i = 0; i < input.size(); ++i)
 		{
-			network.layers[0].values(i, 0) = input[i];
+			network.values[0].values(i, 0) = input[i];
 		}
 
 		// propagate forward
 		for (size_t i = 1; i < network.layers.size(); ++i)
 		{
-			Layer & currentLayer = network.layers[i];
-			Layer & previousLayer = network.layers[i - 1];
+			const Layer & currentLayer = network.layers[i];
+			Value & currentValues = network.values[i];
+			const Value & previousValues = network.values[i - 1];
 
-			currentLayer.weightedInput = currentLayer.weights * previousLayer.values + currentLayer.biases;
-			currentLayer.values = ActivationFunction(currentLayer.weightedInput);
+			currentValues.weightedInput = currentLayer.weights * previousValues.values + currentLayer.biases;
+			currentValues.values = ActivationFunction(currentValues.weightedInput);
 		}
 	}
 
-	std::vector<double> FeedForward(Network & network, const std::vector<double> & input)
+	std::vector<double> FeedForward(const Network & network, const std::vector<double> & input)
 	{
 		PropagateForward(network, input);
 
 		std::vector<double> ret;
-		for (size_t i = 0; i < network.layers.back().values.GetNumberOfRows(); ++i)
-			ret.push_back(network.layers.back().values(i, 0));
+		for (size_t i = 0; i < network.values.back().values.GetNumberOfRows(); ++i)
+			ret.push_back(network.values.back().values(i, 0));
 
 		return ret;
 	}
 
-	void PropagateBackward(Network & network, const std::vector<double> & output, NetworkError & error)
+	void PropagateBackward(Network & network, const std::vector<double> & output)
 	{
-		if (output.size() != network.layers.back().values.GetNumberOfRows())
+		if (output.size() != network.values.back().values.GetNumberOfRows())
 			throw std::runtime_error("invalid number of output values");
 
 		// output layer error
-		Layer & outputLayer = network.layers.back();
-		Layer & previousLayer = network.layers[network.layers.size() - 2];
+		Value & outputValues = network.values.back();
+		Value & previousValues = network.values[network.layers.size() - 2];
 
-		Matrix delta = Matrix(outputLayer.values - Matrix(output)).hadamardProduct(
-			ActivationFunctionDerivative(outputLayer.weightedInput));
+		Matrix delta = Matrix(outputValues.values - Matrix(output)).hadamardProduct(
+			ActivationFunctionDerivative(outputValues.weightedInput));
 
-		error.layers.back().biases += delta;
-		error.layers.back().weights += delta * previousLayer.values.transpose();
+		network.errors.back().biases += delta;
+		network.errors.back().weights += delta * previousValues.values.transpose();
 
 		// propagate error backward
 		// error is accumulating
 		for (size_t i = network.layers.size() - 2; i > 0; --i)
 		{
-			Layer & layer = network.layers[i];
+			Value & currentValues = network.values[i];
+			Value & previousValues = network.values[i - 1];
 			Layer & nextLayer = network.layers[i + 1];
-			Layer & previousLayer = network.layers[i - 1];
 
 			delta = (nextLayer.weights.transpose() * delta).hadamardProduct(
-				ActivationFunctionDerivative(layer.weightedInput));
+				ActivationFunctionDerivative(currentValues.weightedInput));
 
-			error.layers[i].biases += delta;
-			error.layers[i].weights += delta * previousLayer.values.transpose();
+			network.errors[i].biases += delta;
+			network.errors[i].weights += delta * previousValues.values.transpose();
 		}
 	}
 
-	void UpdateWeights(Network & network, size_t numberOfExamples, double learningRate, NetworkError & error)
+	void UpdateWeights(Network & network, size_t numberOfExamples, double learningRate)
 	{
 		// update weights
 		for (size_t i = network.layers.size() - 1; i > 0; --i)
@@ -177,11 +169,11 @@ namespace NeuralNetwork
 			Layer & layer = network.layers[i];
 			Layer & previousLayer = network.layers[i - 1];
 
-			layer.weights -= error.layers[i].weights * learningRate / (double)numberOfExamples;
-			layer.biases -= error.layers[i].biases * learningRate / (double)numberOfExamples;
+			layer.weights -= network.errors[i].weights * learningRate / (double)numberOfExamples;
+			layer.biases -= network.errors[i].biases * learningRate / (double)numberOfExamples;
 
-			error.layers[i].weights.Reset(0.0);
-			error.layers[i].biases.Reset(0.0);
+			network.errors[i].weights.Reset(0.0);
+			network.errors[i].biases.Reset(0.0);
 		}
 	}
 
@@ -190,8 +182,6 @@ namespace NeuralNetwork
 		size_t numberOfEpochs, size_t batchSize, double learningRate,
 		std::function<void()> epochCallback)
 	{
-		NetworkError error = CreateNetworkError(network);
-
 		// prepare input data
 		std::vector<std::pair<std::vector<double>, std::vector<double>>> data;
 		for (const auto & d : trainingData)
@@ -212,12 +202,12 @@ namespace NeuralNetwork
 						break;
 
 					PropagateForward(network, dataIt->first);
-					PropagateBackward(network, dataIt->second, error);
+					PropagateBackward(network, dataIt->second);
 
 					dataIt++;
 				}
 
-				UpdateWeights(network, currentEpochSize, learningRate, error);
+				UpdateWeights(network, currentEpochSize, learningRate);
 			}
 
 			if (epochCallback)

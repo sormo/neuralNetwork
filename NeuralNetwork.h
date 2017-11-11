@@ -15,5 +15,5 @@ namespace NeuralNetwork
 		size_t numberOfEpochs, size_t batchSize, double learningRate,
 		std::function<void()> epochCallback);
 
-	std::vector<double> FeedForward(Network & network, const std::vector<double> & input);
+	std::vector<double> FeedForward(const Network & network, const std::vector<double> & input);
 };
